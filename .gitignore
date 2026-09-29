@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+
+# Flutter / Dart
+frontend/.dart_tool/
+frontend/build/
+frontend/.flutter-plugins-dependencies
+frontend/*.iml
+frontend/test/failures/
+
+# Firebase emulator
+*-debug.log
+.firebase/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Secrets: never commit service-account keys
+*firebase-adminsdk*.json
+service-account*.json
+
+# Local scratch screenshots
+radarrr copy.png

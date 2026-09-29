@@ -1,0 +1,45 @@
+# Full stack: Firestore emulator + FastAPI + Flutter web.
+#
+#   docker compose up --build
+#
+#   Web UI   http://localhost:8081
+#   API      http://localhost:8000/docs
+#   Emulator localhost:8080 (data is in-memory; lost when the container stops)
+name: broadcast-scheduler
+
+services:
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud emulators firestore start
+      --host-port=0.0.0.0:8080
+      --project=demo-broadcast-scheduler
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      FIRESTORE_EMULATOR_HOST: firestore:8080
+      GCP_PROJECT_ID: demo-broadcast-scheduler
+    ports:
+      - "8000:8000"
+    depends_on:
+      firestore:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_BASE_URL: http://localhost:8000
+        MAPBOX_TOKEN: ${MAPBOX_TOKEN:-}
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
