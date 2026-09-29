@@ -59,7 +59,14 @@ Names are case-insensitive. Precedence: `backend/.env` > environment > defaults.
 | `GOOGLE_APPLICATION_CREDENTIALS` | *(unset)* | Service-account key path for a real project; unset means Application Default Credentials |
 | `FIRESTORE_DATABASE` | `(default)` | Named Firestore database |
 | `COLLECTION_PREFIX` | *(empty)* | Prefix for every collection |
-| `MAX_MATCH_RADIUS_MILES` | `5` | Pairing radius |
+| `INITIAL_RADIUS_MILES` | `1` | Search radius a new package starts with |
+| `RADIUS_INCREMENT_MILES` | `2` | How much a waiting package's radius grows each interval (`0` = never) |
+| `RADIUS_INTERVAL_SECONDS` | `30` | The timer: how long a package waits before its radius grows |
+| `MAX_MATCH_RADIUS_MILES` | `15` | The radius never grows past this |
+
+The four radius values only **seed** the policy on first start-up (`settings/radius_policy`
+in Firestore). After that, change it from the UI (**Search radius** card) or
+`PUT /settings/radius`; edits to these variables are ignored while that document exists.
 | `ADMIN_NAME` / `ADMIN_LAT` / `ADMIN_LNG` | `Admin HQ` / `40.7580` / `-73.9855` | Admin seed, used only if `admin/default` doesn't exist yet |
 | `CORS_ORIGINS` | `["*"]` | JSON list of allowed browser origins |
 | `WEBSOCKET_QUEUE_SIZE` | `1000` | Undelivered events per socket before that client is dropped |

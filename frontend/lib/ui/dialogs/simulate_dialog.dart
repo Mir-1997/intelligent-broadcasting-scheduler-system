@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/models.dart';
+import '../formatting.dart';
 
 /// Chooses how many random packages/riders to spawn around the admin.
 class SimulateDialog extends StatefulWidget {
-  const SimulateDialog({required this.matchRadiusMiles, super.key});
+  const SimulateDialog({required this.policy, super.key});
 
-  final double matchRadiusMiles;
+  final RadiusPolicy policy;
 
   static Future<SimulationDraft?> show(
     BuildContext context, {
-    required double matchRadiusMiles,
+    required RadiusPolicy policy,
   }) => showDialog<SimulationDraft>(
     context: context,
-    builder: (_) => SimulateDialog(matchRadiusMiles: matchRadiusMiles),
+    builder: (_) => SimulateDialog(policy: policy),
   );
 
   @override
@@ -62,9 +63,10 @@ class _SimulateDialogState extends State<SimulateDialog> {
           children: [
             Text(
               'Spawns random packages and riders around the admin, in random '
-              'order. Each goes through normal matching '
-              '(${widget.matchRadiusMiles.toStringAsFixed(0)} mi radius), so a '
-              'spawn radius larger than that leaves some of them waiting.',
+              'order. Each goes through normal matching: packages start '
+              'searching ${formatRadius(widget.policy.initialRadiusMiles)} '
+              'around their pickup and widen over time, so some wait before '
+              'they find a rider.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),

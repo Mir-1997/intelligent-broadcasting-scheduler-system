@@ -3,6 +3,7 @@
 Collections (each optionally prefixed by ``COLLECTION_PREFIX``)::
 
     admin/default            the single admin document
+    settings/radius_policy   RadiusPolicy (how search radii grow)
     packages/{package_id}    Package
     riders/{rider_id}        Rider
     assignments/{asg_id}     Assignment
@@ -24,13 +25,14 @@ from pydantic import BaseModel
 
 from broadcast_scheduler.config import Settings
 from broadcast_scheduler.exceptions import ConflictError, NotFoundError
-from broadcast_scheduler.matching import nearest_package, nearest_rider, pair
+from broadcast_scheduler.matching import match_waiting, nearest_package, nearest_rider, pair
 from broadcast_scheduler.models import (
     Admin,
     Assignment,
     MatchTrigger,
     Package,
     PackageStatus,
+    RadiusPolicy,
     Rider,
     RiderStatus,
     utc_now,
@@ -94,6 +96,9 @@ class FirestoreSchedulerRepository:
     def __init__(self, client: AsyncClient, collection_prefix: str = "") -> None:
         self._client = client
         self._admin = client.collection(f"{collection_prefix}admin").document("default")
+        self._radius_policy = client.collection(f"{collection_prefix}settings").document(
+            "radius_policy"
+        )
         self._packages = client.collection(f"{collection_prefix}packages")
         self._riders = client.collection(f"{collection_prefix}riders")
         self._assignments = client.collection(f"{collection_prefix}assignments")
@@ -108,10 +113,20 @@ class FirestoreSchedulerRepository:
         await self._admin.set(_to_doc(admin))
         return admin
 
+    # --- radius policy -------------------------------------------------------------------
+
+    async def get_radius_policy(self) -> RadiusPolicy | None:
+        snapshot = await self._radius_policy.get()
+        return RadiusPolicy.model_validate(snapshot.to_dict()) if snapshot.exists else None
+
+    async def save_radius_policy(self, policy: RadiusPolicy) -> RadiusPolicy:
+        await self._radius_policy.set(_to_doc(policy))
+        return policy
+
     # --- matching ------------------------------------------------------------------------
 
     async def add_package(
-        self, package: Package, max_radius_miles: float
+        self, package: Package, radius_miles: float
     ) -> tuple[Package, Assignment | None]:
         @async_transactional
         async def run(tx: AsyncTransaction) -> tuple[Package, Assignment | None]:
@@ -119,7 +134,7 @@ class FirestoreSchedulerRepository:
                 filter=FieldFilter("status", "==", RiderStatus.AVAILABLE.value)
             )
             riders = [Rider.model_validate(s.to_dict()) async for s in await tx.get(query)]
-            match = nearest_rider(package, riders, max_radius_miles)
+            match = nearest_rider(package, riders, radius_miles)
             if match is None:
                 tx.create(self._packages.document(package.id), _to_doc(package))
                 return package, None
@@ -133,7 +148,7 @@ class FirestoreSchedulerRepository:
         return await run(self._client.transaction())
 
     async def add_rider(
-        self, rider: Rider, max_radius_miles: float
+        self, rider: Rider, policy: RadiusPolicy
     ) -> tuple[Rider, Assignment | None]:
         @async_transactional
         async def run(tx: AsyncTransaction) -> tuple[Rider, Assignment | None]:
@@ -141,16 +156,41 @@ class FirestoreSchedulerRepository:
                 filter=FieldFilter("status", "==", PackageStatus.WAITING.value)
             )
             packages = [Package.model_validate(s.to_dict()) async for s in await tx.get(query)]
-            match = nearest_package(rider, packages, max_radius_miles)
+            now = utc_now()
+            match = nearest_package(rider, packages, policy, now)
             if match is None:
                 tx.create(self._riders.document(rider.id), _to_doc(rider))
                 return rider, None
             package, distance = match
             package, stored, assignment = pair(
-                package, rider, distance, MatchTrigger.RIDER_ADDED, utc_now()
+                package, rider, distance, MatchTrigger.RIDER_ADDED, now
             )
             self._write_pair(tx, package, stored, assignment, new_package=False)
             return stored, assignment
+
+        return await run(self._client.transaction())
+
+    async def match_waiting(self, policy: RadiusPolicy) -> list[Assignment]:
+        @async_transactional
+        async def run(tx: AsyncTransaction) -> list[Assignment]:
+            package_query = self._packages.where(
+                filter=FieldFilter("status", "==", PackageStatus.WAITING.value)
+            )
+            rider_query = self._riders.where(
+                filter=FieldFilter("status", "==", RiderStatus.AVAILABLE.value)
+            )
+            packages = [
+                Package.model_validate(s.to_dict()) async for s in await tx.get(package_query)
+            ]
+            if not packages:
+                return []
+            riders = [Rider.model_validate(s.to_dict()) async for s in await tx.get(rider_query)]
+            pairs = match_waiting(packages, riders, policy, utc_now())
+            for package, rider, assignment in pairs:
+                tx.update(self._packages.document(package.id), _assignment_fields(package))
+                tx.update(self._riders.document(rider.id), _assignment_fields(rider))
+                tx.create(self._assignments.document(assignment.id), _to_doc(assignment))
+            return [assignment for _, _, assignment in pairs]
 
         return await run(self._client.transaction())
 

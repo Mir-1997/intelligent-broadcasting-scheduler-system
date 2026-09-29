@@ -12,7 +12,6 @@ Ordered roughly by value for this project.
     `broadcast.expired`, and a retry scheduler (an asyncio task locally, Cloud Tasks in prod).
   - The UI would show an "offers" state on riders with accept/reject buttons that simulate
     the rider app.
-- **Re-matching waiting items** when the radius is changed at runtime, or on a periodic sweep.
 - **Road distance or ETA** via a routing API (Google Distance Matrix, OSRM). Use haversine to
   pre-filter, then rank the top-k candidates by ETA.
 - **Fairness and scoring:** weight distance against rider idle time, vehicle capacity or

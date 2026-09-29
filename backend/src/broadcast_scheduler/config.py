@@ -67,8 +67,19 @@ class Settings(BaseSettings):
         description="Prepended to every collection name; useful for isolating test runs.",
     )
 
-    # --- Matching ------------------------------------------------------------------------
-    max_match_radius_miles: float = Field(default=5.0, gt=0)
+    # --- Matching (seed for the radius policy; editable at runtime via PUT /settings/radius)
+    initial_radius_miles: float = Field(
+        default=1.0, gt=0, description="Search radius a new package starts with."
+    )
+    radius_increment_miles: float = Field(
+        default=2.0, ge=0, description="How much a waiting package's radius grows per interval."
+    )
+    radius_interval_seconds: float = Field(
+        default=30.0, ge=1, description="How long a package waits before its radius grows."
+    )
+    max_match_radius_miles: float = Field(
+        default=15.0, gt=0, description="The radius never grows past this."
+    )
 
     # --- Admin seed (used only when no admin document exists yet) ------------------------
     admin_name: str = "Admin HQ"

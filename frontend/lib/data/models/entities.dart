@@ -21,6 +21,100 @@ class Admin extends Equatable {
   List<Object?> get props => [name, location];
 }
 
+/// How far a waiting package searches for a rider, growing the longer it waits.
+///
+/// Mirrors the backend's `RadiusPolicy`: a package starts at
+/// [initialRadiusMiles] and every [interval] it waits, its radius grows by
+/// [incrementMiles], up to [maxRadiusMiles]. The radius is derived from the
+/// package's age, so the UI computes it locally from the same rule.
+class RadiusPolicy extends Equatable {
+  const RadiusPolicy({
+    this.initialRadiusMiles = 1,
+    this.incrementMiles = 2,
+    this.interval = const Duration(seconds: 30),
+    this.maxRadiusMiles = 15,
+  });
+
+  factory RadiusPolicy.fromJson(Map<String, dynamic> json) => RadiusPolicy(
+    initialRadiusMiles: (json['initial_radius_miles'] as num).toDouble(),
+    incrementMiles: (json['increment_miles'] as num).toDouble(),
+    interval: Duration(
+      milliseconds: ((json['interval_seconds'] as num) * 1000).round(),
+    ),
+    maxRadiusMiles: (json['max_radius_miles'] as num).toDouble(),
+  );
+
+  final double initialRadiusMiles;
+  final double incrementMiles;
+  final Duration interval;
+  final double maxRadiusMiles;
+
+  Map<String, dynamic> toJson() => {
+    'initial_radius_miles': initialRadiusMiles,
+    'increment_miles': incrementMiles,
+    'interval_seconds': interval.inMilliseconds / 1000,
+    'max_radius_miles': maxRadiusMiles,
+  };
+
+  /// Completed intervals since [since] (0 if the clock reads earlier).
+  int _steps(DateTime since, DateTime now) {
+    final waited = now.difference(since);
+    return waited.isNegative
+        ? 0
+        : waited.inMicroseconds ~/ interval.inMicroseconds;
+  }
+
+  double _radiusAfter(int steps) =>
+      (initialRadiusMiles + incrementMiles * steps).clamp(0, maxRadiusMiles);
+
+  /// Search radius of a package that started waiting at [since], as of [now].
+  double radiusAt(DateTime since, DateTime now) =>
+      _radiusAfter(_steps(since, now));
+
+  /// Radius just before the most recent expansion, and how far into the
+  /// current interval [now] is. Lets the map ease a disk from its old size.
+  ({double previous, Duration sinceGrowth}) lastGrowth(
+    DateTime since,
+    DateTime now,
+  ) {
+    final steps = _steps(since, now);
+    return (
+      previous: _radiusAfter(steps == 0 ? 0 : steps - 1),
+      sinceGrowth: steps == 0
+          ? now.difference(since)
+          : now.difference(since) - interval * steps,
+    );
+  }
+
+  /// When that package's radius next grows, or null once it is capped.
+  DateTime? nextExpansionAt(DateTime since, DateTime now) {
+    if (incrementMiles == 0 || radiusAt(since, now) >= maxRadiusMiles) {
+      return null;
+    }
+    return since.add(interval * (_steps(since, now) + 1));
+  }
+
+  RadiusPolicy copyWith({
+    double? initialRadiusMiles,
+    double? incrementMiles,
+    Duration? interval,
+    double? maxRadiusMiles,
+  }) => RadiusPolicy(
+    initialRadiusMiles: initialRadiusMiles ?? this.initialRadiusMiles,
+    incrementMiles: incrementMiles ?? this.incrementMiles,
+    interval: interval ?? this.interval,
+    maxRadiusMiles: maxRadiusMiles ?? this.maxRadiusMiles,
+  );
+
+  @override
+  List<Object?> get props => [
+    initialRadiusMiles,
+    incrementMiles,
+    interval,
+    maxRadiusMiles,
+  ];
+}
+
 enum PackageStatus { waiting, assigned }
 
 enum RiderStatus { available, assigned }
@@ -28,7 +122,8 @@ enum RiderStatus { available, assigned }
 /// Which arrival caused an assignment.
 enum MatchTrigger {
   packageAdded('package_added'),
-  riderAdded('rider_added');
+  riderAdded('rider_added'),
+  radiusExpanded('radius_expanded');
 
   const MatchTrigger(this.wireName);
 
@@ -168,7 +263,7 @@ class SchedulerSnapshot extends Equatable {
     required this.admin,
     required this.packages,
     required this.riders,
-    required this.maxMatchRadiusMiles,
+    required this.radiusPolicy,
   });
 
   factory SchedulerSnapshot.fromJson(Map<String, dynamic> json) =>
@@ -180,14 +275,16 @@ class SchedulerSnapshot extends Equatable {
         riders: (json['riders'] as List<dynamic>)
             .map((r) => Rider.fromJson(r as Map<String, dynamic>))
             .toList(),
-        maxMatchRadiusMiles: (json['max_match_radius_miles'] as num).toDouble(),
+        radiusPolicy: RadiusPolicy.fromJson(
+          json['radius_policy'] as Map<String, dynamic>,
+        ),
       );
 
   final Admin admin;
   final List<Package> packages;
   final List<Rider> riders;
-  final double maxMatchRadiusMiles;
+  final RadiusPolicy radiusPolicy;
 
   @override
-  List<Object?> get props => [admin, packages, riders, maxMatchRadiusMiles];
+  List<Object?> get props => [admin, packages, riders, radiusPolicy];
 }

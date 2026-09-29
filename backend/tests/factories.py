@@ -24,10 +24,12 @@ def make_rider(lat: float, lng: float, name: str = "Rider") -> Rider:
     )
 
 
-def make_package(lat: float, lng: float) -> Package:
+def make_package(lat: float, lng: float, waited_seconds: float = 0) -> Package:
+    """A waiting package; ``waited_seconds`` backdates it so its radius has grown."""
+    created_at = utc_now() - timedelta(seconds=waited_seconds) if waited_seconds else _tick()
     return Package(
         id=new_id("pkg"),
         pickup=Place(lat=lat, lng=lng, address="pickup"),
         dropoff=Place(lat=lat + 0.01, lng=lng, address="dropoff"),
-        created_at=_tick(),
+        created_at=created_at,
     )

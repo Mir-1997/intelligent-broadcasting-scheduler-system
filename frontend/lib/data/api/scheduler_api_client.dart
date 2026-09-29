@@ -43,6 +43,9 @@ class SchedulerApiClient {
   Future<void> simulate(SimulationDraft draft) =>
       _send('POST', '/simulate', body: draft.toJson());
 
+  Future<void> updateRadiusPolicy(RadiusPolicy policy) =>
+      _send('PUT', '/settings/radius', body: policy.toJson());
+
   Future<void> reset() => _send('POST', '/scheduler/reset');
 
   void close() => _http.close();

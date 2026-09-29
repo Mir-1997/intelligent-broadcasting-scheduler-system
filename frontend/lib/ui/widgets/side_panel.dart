@@ -4,8 +4,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../bloc/history/history_bloc.dart';
 import '../../bloc/scheduler/scheduler_bloc.dart';
 import '../../data/models/models.dart';
+import '../dialogs/radius_settings_dialog.dart';
 import '../formatting.dart';
 import '../theme.dart';
+import 'clock_builder.dart';
 
 /// Tabs: what's in the scheduler right now, and the assignment history.
 class SidePanel extends StatelessWidget {
@@ -58,6 +60,7 @@ class _SchedulerTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
+        _RadiusPolicyCard(policy: state.radiusPolicy),
         _SectionHeader(
           icon: Icons.inventory_2,
           color: SchedulerColors.package,
@@ -74,8 +77,16 @@ class _SchedulerTab extends StatelessWidget {
               color: SchedulerColors.package,
             ),
             title: Text(p.id),
-            subtitle: Text(
-              'Pickup: ${p.pickup.label}\nAdded ${formatTime(p.createdAt)}',
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pickup: ${p.pickup.label}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                _SearchRadiusText(package: p, policy: state.radiusPolicy),
+              ],
             ),
             isThreeLine: true,
             onTap: () => onFocus(p.pickup.coordinates),
@@ -114,6 +125,75 @@ class _SchedulerTab extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Summary of the radius policy, with a button to change it.
+class _RadiusPolicyCard extends StatelessWidget {
+  const _RadiusPolicyCard({required this.policy});
+
+  final RadiusPolicy policy;
+
+  Future<void> _edit(BuildContext context) async {
+    final bloc = context.read<SchedulerBloc>();
+    final updated = await RadiusSettingsDialog.show(context, policy);
+    if (updated != null) bloc.add(RadiusPolicyUpdateRequested(updated));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card.outlined(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: ListTile(
+        leading: const Icon(Icons.radar, color: SchedulerColors.radar),
+        title: const Text('Search radius'),
+        subtitle: Text(
+          'Starts ${formatRadius(policy.initialRadiusMiles)} · '
+          '+${formatRadius(policy.incrementMiles)} every '
+          '${formatInterval(policy.interval)}\n'
+          'Up to ${formatRadius(policy.maxRadiusMiles)}',
+          style: theme.textTheme.bodySmall,
+        ),
+        isThreeLine: true,
+        trailing: IconButton(
+          tooltip: 'Change search radius',
+          icon: const Icon(Icons.tune),
+          onPressed: () => _edit(context),
+        ),
+        onTap: () => _edit(context),
+      ),
+    );
+  }
+}
+
+/// A waiting package's current radius and a live countdown to its next growth.
+class _SearchRadiusText extends StatelessWidget {
+  const _SearchRadiusText({required this.package, required this.policy});
+
+  final Package package;
+  final RadiusPolicy policy;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClockBuilder(
+      builder: (context, now) {
+        final radius = policy.radiusAt(package.createdAt, now);
+        final next = policy.nextExpansionAt(package.createdAt, now);
+        final text = next == null
+            ? 'Searching ${formatRadius(radius)} (max)'
+            : 'Searching ${formatRadius(radius)} · '
+                  '${formatRadius(policy.radiusAt(package.createdAt, next))} in '
+                  '${formatCountdown(next.difference(now))}';
+        return Row(
+          children: [
+            const Icon(Icons.timer_outlined, size: 14),
+            const SizedBox(width: 4),
+            Flexible(child: Text(text, overflow: TextOverflow.ellipsis)),
+          ],
+        );
+      },
     );
   }
 }

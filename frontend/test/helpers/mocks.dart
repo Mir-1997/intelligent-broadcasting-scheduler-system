@@ -38,4 +38,5 @@ void registerFallbacks() {
     const RiderDraft(name: 'x', location: Coordinates(lat: 0, lng: 0)),
   );
   registerFallbackValue(const SimulationDraft());
+  registerFallbackValue(const RadiusPolicy());
 }

@@ -26,6 +26,10 @@ void main() {
     test('Assignment.fromJson maps trigger wire names', () {
       final a = Assignment.fromJson(assignmentJson('asg_1'));
       expect(a.trigger, MatchTrigger.riderAdded);
+      expect(
+        MatchTrigger.fromWire('radius_expanded'),
+        MatchTrigger.radiusExpanded,
+      );
       expect(a.distanceMiles, 1.234);
       expect(a.riderLocation.lat, 40.75);
     });
@@ -46,6 +50,54 @@ void main() {
     });
   });
 
+  group('RadiusPolicy', () {
+    const policy = RadiusPolicy(
+      initialRadiusMiles: 1,
+      incrementMiles: 2,
+      interval: Duration(seconds: 30),
+      maxRadiusMiles: 6,
+    );
+    DateTime after(int seconds) => t0.add(Duration(seconds: seconds));
+
+    test('round-trips the backend JSON', () {
+      expect(RadiusPolicy.fromJson(radiusPolicyJson()), const RadiusPolicy());
+      expect(const RadiusPolicy().toJson(), radiusPolicyJson());
+      expect(
+        RadiusPolicy.fromJson({
+          ...radiusPolicyJson(),
+          'interval_seconds': 2.5,
+        }).interval,
+        const Duration(milliseconds: 2500),
+      );
+    });
+
+    test('grows by the increment each interval, up to the cap', () {
+      expect(policy.radiusAt(t0, after(0)), 1);
+      expect(policy.radiusAt(t0, after(29)), 1);
+      expect(policy.radiusAt(t0, after(30)), 3);
+      expect(policy.radiusAt(t0, after(60)), 5);
+      expect(policy.radiusAt(t0, after(90)), 6);
+      expect(policy.radiusAt(t0, after(9999)), 6);
+      expect(policy.radiusAt(t0, after(-5)), 1);
+    });
+
+    test('next expansion is the next boundary, none once capped', () {
+      expect(policy.nextExpansionAt(t0, after(10)), after(30));
+      expect(policy.nextExpansionAt(t0, after(30)), after(60));
+      expect(policy.nextExpansionAt(t0, after(90)), isNull);
+      expect(
+        policy.copyWith(incrementMiles: 0).nextExpansionAt(t0, t0),
+        isNull,
+      );
+    });
+
+    test('lastGrowth reports the previous radius and time since growing', () {
+      final g = policy.lastGrowth(t0, after(35));
+      expect(g.previous, 1);
+      expect(g.sinceGrowth, const Duration(seconds: 5));
+    });
+  });
+
   group('ServerEvent.fromJson', () {
     test('snapshot', () {
       final e = ServerEvent.fromJson(
@@ -56,14 +108,14 @@ void main() {
           },
           'packages': [packageJson('pkg_1')],
           'riders': [riderJson('rdr_1')],
-          'max_match_radius_miles': 5,
+          'radius_policy': radiusPolicyJson(),
         }),
       );
       expect(e, isA<SnapshotEvent>());
       final snap = (e as SnapshotEvent).snapshot;
       expect(snap.packages.single.id, 'pkg_1');
       expect(snap.riders.single.id, 'rdr_1');
-      expect(snap.maxMatchRadiusMiles, 5);
+      expect(snap.radiusPolicy, const RadiusPolicy());
     });
 
     test('every delta type', () {
@@ -101,6 +153,16 @@ void main() {
           }),
         ),
         isA<AdminUpdatedEvent>(),
+      );
+      expect(
+        ServerEvent.fromJson(
+          event('radius_policy.updated', {'radius_policy': radiusPolicyJson()}),
+        ),
+        isA<RadiusPolicyUpdatedEvent>().having(
+          (e) => e.policy,
+          'policy',
+          const RadiusPolicy(),
+        ),
       );
       expect(
         ServerEvent.fromJson(event('scheduler.reset', {})),

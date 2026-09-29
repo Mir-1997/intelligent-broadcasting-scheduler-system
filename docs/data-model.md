@@ -52,7 +52,7 @@ Document ids equal the entity `id` field (`pkg_3f9a1c2b`, …).
   "distance_miles": 0.768,
   "pickup": {...}, "dropoff": {...},
   "rider_location": { "lat": 40.7644, "lng": -73.9735 },
-  "trigger": "package_added",           // "package_added" | "rider_added"
+  "trigger": "package_added",           // "package_added" | "rider_added" | "radius_expanded"
   "created_at": Timestamp
 }
 ```

@@ -13,8 +13,9 @@ import 'radar_layer.dart';
 
 /// The live map, centred on the admin.
 ///
-/// Layers, bottom to top: basemap tiles (Mapbox or OSM), breathing radar disks (match radius)
-/// around waiting packages, drop-off lines, fresh-assignment lines, then markers.
+/// Layers, bottom to top: basemap tiles (Mapbox or OSM), breathing radar disks
+/// (each waiting package's growing search radius), drop-off lines,
+/// fresh-assignment lines, then markers.
 class SchedulerMap extends StatefulWidget {
   const SchedulerMap({required this.controller, super.key});
 
@@ -57,10 +58,15 @@ class _SchedulerMapState extends State<SchedulerMap> {
               const BasemapLayer(),
               if (_showRadius)
                 RadarLayer(
-                  centers: {
-                    for (final p in packages) p.id: p.pickup.toLatLng(),
-                  },
-                  radiusMiles: state.maxMatchRadiusMiles,
+                  targets: [
+                    for (final p in packages)
+                      RadarTarget(
+                        id: p.id,
+                        center: p.pickup.toLatLng(),
+                        since: p.createdAt,
+                      ),
+                  ],
+                  policy: state.radiusPolicy,
                   color: SchedulerColors.radar,
                 ),
               MapLinesLayer(
@@ -192,7 +198,6 @@ class _SchedulerMapState extends State<SchedulerMap> {
           child: _LayerToggles(
             showRadius: _showRadius,
             showDropoffs: _showDropoffs,
-            radiusMiles: state.maxMatchRadiusMiles,
             onRadiusChanged: (v) => setState(() => _showRadius = v),
             onDropoffsChanged: (v) => setState(() => _showDropoffs = v),
           ),
@@ -213,14 +218,12 @@ class _LayerToggles extends StatelessWidget {
   const _LayerToggles({
     required this.showRadius,
     required this.showDropoffs,
-    required this.radiusMiles,
     required this.onRadiusChanged,
     required this.onDropoffsChanged,
   });
 
   final bool showRadius;
   final bool showDropoffs;
-  final double radiusMiles;
   final ValueChanged<bool> onRadiusChanged;
   final ValueChanged<bool> onDropoffsChanged;
 
@@ -233,7 +236,7 @@ class _LayerToggles extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             FilterChip(
-              label: Text('${radiusMiles.toStringAsFixed(0)} mi match radius'),
+              label: const Text('Search radius'),
               selected: showRadius,
               onSelected: onRadiusChanged,
             ),

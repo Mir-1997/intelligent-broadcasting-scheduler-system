@@ -23,18 +23,20 @@ def find_nearest[T](
     origin: Location,
     candidates: Iterable[T],
     location_of: Callable[[T], Location],
-    max_miles: float,
+    max_miles: float | Callable[[T], float],
 ) -> tuple[T, float] | None:
     """Return the candidate closest to ``origin`` and its distance, or ``None``.
 
-    Candidates further than ``max_miles`` are ignored. On an exact distance tie the
+    Candidates further than ``max_miles`` are ignored; pass a function instead of a
+    number when each candidate has its own reach. On an exact distance tie the
     candidate that appears first wins, so callers pass candidates oldest-first to get
     first-come-first-served fairness.
     """
+    reach_of = max_miles if callable(max_miles) else lambda _: max_miles
     best: tuple[T, float] | None = None
     for candidate in candidates:
         distance = haversine_miles(origin, location_of(candidate))
-        if distance <= max_miles and (best is None or distance < best[1]):
+        if distance <= reach_of(candidate) and (best is None or distance < best[1]):
             best = (candidate, distance)
     return best
 

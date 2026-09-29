@@ -28,6 +28,9 @@ def settings() -> Settings:
         admin_name="Test Admin",
         admin_lat=ADMIN_LAT,
         admin_lng=ADMIN_LNG,
+        # A fixed 5-mile reach keeps pairing tests independent of radius growth.
+        initial_radius_miles=5.0,
+        radius_increment_miles=0,
         max_match_radius_miles=5.0,
     )
 

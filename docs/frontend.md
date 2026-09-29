@@ -48,7 +48,7 @@ the same thing.
 
 | | |
 |---|---|
-| **State** | `loadStatus`, `admin`, `packages` (waiting, by id), `riders` (available, by id), `maxMatchRadiusMiles`, `connection`, `hasSnapshot`, `recentAssignments` (prompts), `pendingRequests`, `errorMessage` |
+| **State** | `loadStatus`, `admin`, `packages` (waiting, by id), `riders` (available, by id), `radiusPolicy`, `connection`, `hasSnapshot`, `recentAssignments` (prompts), `pendingRequests`, `errorMessage` |
 | **Start** | `SchedulerStarted` → `GET /admin` (REST) → subscribe to `connectionChanges` and `events` with `emit.forEach` → `repository.connect()` |
 | **Reducer** | `reduceServerEvent(state, event)` is a pure, exhaustive `switch` over the sealed `ServerEvent`, and idempotent |
 | **Commands** | `PackageAddRequested`, `RiderAddRequested`, `PackageRemoveRequested`, `RiderRemoveRequested`, `SimulationRequested`, `SchedulerResetRequested`: each increments `pendingRequests`, awaits the REST call, and turns an `ApiException` into `errorMessage` |
@@ -115,10 +115,21 @@ can still be adjusted before submitting.
 Colours are consistent everywhere (`ui/theme.dart`): admin purple, package orange,
 rider blue, assignment green, drop-off grey.
 
+### Search radius controls
+
+The Scheduler tab starts with a **Search radius** card summarising the policy (start,
+increment, timer, cap). Its tune button opens `RadiusSettingsDialog`: four sliders plus a
+live sentence describing how a package's search grows, and a **Defaults** button. **Apply**
+sends `PUT /settings/radius`; the new policy comes back through `radius_policy.updated` like
+every other change. Each waiting package row shows its current radius and a live
+countdown to the next growth (`Searching 3 mi · 5 mi in 0:12`, via `ClockBuilder`).
+
 ### Radar disks (`RadarLayer`)
 
-Each waiting package gets a soft slate disk the size of the match radius (5 mi). The disk
-breathes: its opacity eases in and out over a 2.8 s cycle. A sonar ring also sweeps from
+Each waiting package gets a slate disk the size of its **current search radius**, computed
+locally from `RadiusPolicy` and the package's `createdAt` (the same rule as the backend).
+When the radius grows, the disk eases out to its new size over ~0.9 s with a brief
+brighter, thicker edge. The disk breathes: its opacity eases in and out over a 2.8 s cycle. A sonar ring also sweeps from
 the pickup to the edge of the range, so the package reads as "actively searching for a
 rider". Details:
 
@@ -127,8 +138,9 @@ rider". Details:
 - The pixel radius comes from a point on the true geodesic edge, so the disk is accurate at
   any zoom level and latitude.
 - Each package's phase is offset by a hash of its id, so disks don't pulse in unison.
-- The ticker runs only while at least one package is waiting, and stops entirely when the
-  OS "reduce motion" setting is on; the disks are then static.
+- The ticker runs only while at least one package is waiting. With the OS "reduce motion"
+  setting on, the animation stops; the disks are static and repaint once a second so they
+  still grow (without easing).
 - The disk disappears the moment the package is paired (`assignment.created`).
 
 ### Web rendering notes

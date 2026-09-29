@@ -8,7 +8,7 @@ class SchedulerState extends Equatable {
     this.admin,
     this.packages = const {},
     this.riders = const {},
-    this.maxMatchRadiusMiles = 5,
+    this.radiusPolicy = const RadiusPolicy(),
     this.connection = ConnectionStatus.disconnected,
     this.hasSnapshot = false,
     this.recentAssignments = const [],
@@ -24,7 +24,9 @@ class SchedulerState extends Equatable {
 
   /// Available riders, keyed by id, in arrival order.
   final Map<String, Rider> riders;
-  final double maxMatchRadiusMiles;
+
+  /// How waiting packages' search radius grows; editable from the UI.
+  final RadiusPolicy radiusPolicy;
   final ConnectionStatus connection;
 
   /// True once the first WebSocket snapshot arrived.
@@ -47,7 +49,7 @@ class SchedulerState extends Equatable {
     Admin? admin,
     Map<String, Package>? packages,
     Map<String, Rider>? riders,
-    double? maxMatchRadiusMiles,
+    RadiusPolicy? radiusPolicy,
     ConnectionStatus? connection,
     bool? hasSnapshot,
     List<Assignment>? recentAssignments,
@@ -59,7 +61,7 @@ class SchedulerState extends Equatable {
       admin: admin ?? this.admin,
       packages: packages ?? this.packages,
       riders: riders ?? this.riders,
-      maxMatchRadiusMiles: maxMatchRadiusMiles ?? this.maxMatchRadiusMiles,
+      radiusPolicy: radiusPolicy ?? this.radiusPolicy,
       connection: connection ?? this.connection,
       hasSnapshot: hasSnapshot ?? this.hasSnapshot,
       recentAssignments: recentAssignments ?? this.recentAssignments,
@@ -74,7 +76,7 @@ class SchedulerState extends Equatable {
     admin,
     packages,
     riders,
-    maxMatchRadiusMiles,
+    radiusPolicy,
     connection,
     hasSnapshot,
     recentAssignments,

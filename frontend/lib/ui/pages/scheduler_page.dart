@@ -67,7 +67,7 @@ class _SchedulerPageState extends State<SchedulerPage> {
     final bloc = context.read<SchedulerBloc>();
     final draft = await SimulateDialog.show(
       context,
-      matchRadiusMiles: bloc.state.maxMatchRadiusMiles,
+      policy: bloc.state.radiusPolicy,
     );
     if (draft != null) bloc.add(SimulationRequested(draft));
   }

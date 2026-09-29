@@ -14,6 +14,7 @@ from broadcast_scheduler.models import (
     MatchTrigger,
     Package,
     PackageStatus,
+    RadiusPolicy,
     Rider,
     RiderStatus,
 )
@@ -35,13 +36,45 @@ def nearest_rider(
 
 
 def nearest_package(
-    rider: Rider, packages: list[Package], max_miles: float
+    rider: Rider, packages: list[Package], policy: RadiusPolicy, now: datetime
 ) -> tuple[Package, float] | None:
-    """Closest *waiting* package pickup to the rider, oldest package on ties."""
+    """Closest *waiting* package whose own current search radius reaches the rider,
+    oldest package on ties."""
     waiting = sorted(
         (p for p in packages if p.status == PackageStatus.WAITING), key=lambda p: p.created_at
     )
-    return find_nearest(rider.location, waiting, lambda p: p.pickup, max_miles)
+    return find_nearest(
+        rider.location,
+        waiting,
+        lambda p: p.pickup,
+        lambda p: policy.radius_at(p.created_at, now),
+    )
+
+
+def match_waiting(
+    packages: list[Package], riders: list[Rider], policy: RadiusPolicy, now: datetime
+) -> list[tuple[Package, Rider, Assignment]]:
+    """Pair waiting packages with riders now inside their (possibly grown) radius.
+
+    Oldest packages choose first, each taking its nearest still-free rider, so a package
+    that has waited longest is served first.
+    """
+    free = sorted(
+        (r for r in riders if r.status == RiderStatus.AVAILABLE), key=lambda r: r.created_at
+    )
+    waiting = sorted(
+        (p for p in packages if p.status == PackageStatus.WAITING), key=lambda p: p.created_at
+    )
+    pairs = []
+    for package in waiting:
+        radius = policy.radius_at(package.created_at, now)
+        match = find_nearest(package.pickup, free, lambda r: r.location, radius)
+        if match is None:
+            continue
+        rider, distance = match
+        free.remove(rider)
+        pairs.append(pair(package, rider, distance, MatchTrigger.RADIUS_EXPANDED, now))
+    return pairs
 
 
 def pair(

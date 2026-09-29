@@ -5,11 +5,12 @@ Firestore documents and WebSocket event payloads, so there is exactly one defini
 of every shape in the system.
 """
 
-from datetime import UTC, datetime
+import math
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 def utc_now() -> datetime:
@@ -59,6 +60,8 @@ class MatchTrigger(StrEnum):
 
     PACKAGE_ADDED = "package_added"
     RIDER_ADDED = "rider_added"
+    RADIUS_EXPANDED = "radius_expanded"
+    """A waiting package's search radius grew (or the policy changed) to reach a rider."""
 
 
 class EventType(StrEnum):
@@ -71,6 +74,7 @@ class EventType(StrEnum):
     RIDER_REMOVED = "rider.removed"
     ASSIGNMENT_CREATED = "assignment.created"
     ADMIN_UPDATED = "admin.updated"
+    RADIUS_POLICY_UPDATED = "radius_policy.updated"
     SCHEDULER_RESET = "scheduler.reset"
 
 
@@ -84,6 +88,44 @@ class Admin(BaseModel):
 
     name: str = Field(min_length=1, max_length=60)
     location: Location
+
+
+class RadiusPolicy(BaseModel):
+    """How far a waiting package searches for a rider, growing the longer it waits.
+
+    A package starts at ``initial_radius_miles``; every ``interval_seconds`` it has been
+    waiting, its radius grows by ``increment_miles``, up to ``max_radius_miles``. The
+    radius is derived from the package's age, so changing the policy applies to every
+    waiting package immediately.
+    """
+
+    initial_radius_miles: float = Field(default=1.0, gt=0, le=100, examples=[1.0])
+    increment_miles: float = Field(default=2.0, ge=0, le=100, examples=[2.0])
+    interval_seconds: float = Field(default=30.0, ge=1, le=86_400, examples=[30.0])
+    max_radius_miles: float = Field(default=15.0, gt=0, le=200, examples=[15.0])
+
+    @model_validator(mode="after")
+    def _max_covers_initial(self) -> Self:
+        if self.max_radius_miles < self.initial_radius_miles:
+            raise ValueError("max_radius_miles must be at least initial_radius_miles")
+        return self
+
+    def _steps(self, created_at: datetime, now: datetime) -> int:
+        """Completed intervals since ``created_at`` (0 if the clock reads earlier)."""
+        waited = max(0.0, (now - created_at).total_seconds())
+        return math.floor(waited / self.interval_seconds)
+
+    def radius_at(self, created_at: datetime, now: datetime) -> float:
+        """Search radius of a package created at ``created_at``, as of ``now``."""
+        grown = self.initial_radius_miles + self.increment_miles * self._steps(created_at, now)
+        return min(grown, self.max_radius_miles)
+
+    def next_expansion_at(self, created_at: datetime, now: datetime) -> datetime | None:
+        """When that package's radius next grows, or ``None`` once it is capped."""
+        if self.increment_miles == 0 or self.radius_at(created_at, now) >= self.max_radius_miles:
+            return None
+        steps = self._steps(created_at, now) + 1
+        return created_at + timedelta(seconds=steps * self.interval_seconds)
 
 
 class PackageCreate(BaseModel):
@@ -160,7 +202,7 @@ class SchedulerState(BaseModel):
     admin: Admin
     packages: list[Package]
     riders: list[Rider]
-    max_match_radius_miles: float
+    radius_policy: RadiusPolicy
 
 
 class SimulationRequest(BaseModel):

@@ -13,6 +13,7 @@ from broadcast_scheduler.models import (
     PackageAddResult,
     PackageCreate,
     PackageStatus,
+    RadiusPolicy,
     Rider,
     RiderAddResult,
     RiderCreate,
@@ -126,6 +127,29 @@ async def get_rider(rider_id: str, service: Service) -> Rider:
 )
 async def delete_rider(rider_id: str, service: Service) -> Rider:
     return await service.remove_rider(rider_id)
+
+
+# --------------------------------------------------------------------------------------
+# Settings
+# --------------------------------------------------------------------------------------
+
+settings_router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+@settings_router.get(
+    "/radius", response_model=RadiusPolicy, summary="How waiting packages' search radius grows"
+)
+async def get_radius_policy(service: Service) -> RadiusPolicy:
+    return await service.get_radius_policy()
+
+
+@settings_router.put(
+    "/radius",
+    response_model=RadiusPolicy,
+    summary="Change the radius policy; applies to every waiting package immediately",
+)
+async def update_radius_policy(policy: RadiusPolicy, service: Service) -> RadiusPolicy:
+    return await service.update_radius_policy(policy)
 
 
 # --------------------------------------------------------------------------------------

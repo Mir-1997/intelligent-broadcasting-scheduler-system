@@ -3,13 +3,14 @@
 import asyncio
 
 from broadcast_scheduler.exceptions import ConflictError, NotFoundError
-from broadcast_scheduler.matching import nearest_package, nearest_rider, pair
+from broadcast_scheduler.matching import match_waiting, nearest_package, nearest_rider, pair
 from broadcast_scheduler.models import (
     Admin,
     Assignment,
     MatchTrigger,
     Package,
     PackageStatus,
+    RadiusPolicy,
     Rider,
     RiderStatus,
     utc_now,
@@ -21,6 +22,7 @@ class InMemorySchedulerRepository:
 
     def __init__(self) -> None:
         self._admin: Admin | None = None
+        self._radius_policy: RadiusPolicy | None = None
         self._packages: dict[str, Package] = {}
         self._riders: dict[str, Rider] = {}
         self._assignments: dict[str, Assignment] = {}
@@ -33,11 +35,18 @@ class InMemorySchedulerRepository:
         self._admin = admin
         return admin
 
+    async def get_radius_policy(self) -> RadiusPolicy | None:
+        return self._radius_policy
+
+    async def save_radius_policy(self, policy: RadiusPolicy) -> RadiusPolicy:
+        self._radius_policy = policy
+        return policy
+
     async def add_package(
-        self, package: Package, max_radius_miles: float
+        self, package: Package, radius_miles: float
     ) -> tuple[Package, Assignment | None]:
         async with self._lock:
-            match = nearest_rider(package, list(self._riders.values()), max_radius_miles)
+            match = nearest_rider(package, list(self._riders.values()), radius_miles)
             if match is None:
                 self._packages[package.id] = package
                 return package, None
@@ -49,19 +58,29 @@ class InMemorySchedulerRepository:
             return package, assignment
 
     async def add_rider(
-        self, rider: Rider, max_radius_miles: float
+        self, rider: Rider, policy: RadiusPolicy
     ) -> tuple[Rider, Assignment | None]:
         async with self._lock:
-            match = nearest_package(rider, list(self._packages.values()), max_radius_miles)
+            now = utc_now()
+            match = nearest_package(rider, list(self._packages.values()), policy, now)
             if match is None:
                 self._riders[rider.id] = rider
                 return rider, None
             package, distance = match
             package, rider, assignment = pair(
-                package, rider, distance, MatchTrigger.RIDER_ADDED, utc_now()
+                package, rider, distance, MatchTrigger.RIDER_ADDED, now
             )
             self._store_pair(package, rider, assignment)
             return rider, assignment
+
+    async def match_waiting(self, policy: RadiusPolicy) -> list[Assignment]:
+        async with self._lock:
+            pairs = match_waiting(
+                list(self._packages.values()), list(self._riders.values()), policy, utc_now()
+            )
+            for package, rider, assignment in pairs:
+                self._store_pair(package, rider, assignment)
+            return [assignment for _, _, assignment in pairs]
 
     def _store_pair(self, package: Package, rider: Rider, assignment: Assignment) -> None:
         self._packages[package.id] = package

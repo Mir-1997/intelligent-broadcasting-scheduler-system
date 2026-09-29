@@ -43,6 +43,9 @@ class SchedulerRepository {
 
   Future<void> simulate(SimulationDraft draft) => _api.simulate(draft);
 
+  Future<void> updateRadiusPolicy(RadiusPolicy policy) =>
+      _api.updateRadiusPolicy(policy);
+
   Future<void> reset() => _api.reset();
 
   Future<void> dispose() async {

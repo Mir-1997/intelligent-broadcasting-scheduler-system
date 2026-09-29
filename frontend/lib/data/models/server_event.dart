@@ -43,6 +43,10 @@ sealed class ServerEvent {
         Admin.fromJson(field('admin')),
         timestamp,
       ),
+      'radius_policy.updated' => RadiusPolicyUpdatedEvent(
+        RadiusPolicy.fromJson(field('radius_policy')),
+        timestamp,
+      ),
       'scheduler.reset' => SchedulerResetEvent(timestamp),
       final Object? other => UnknownEvent('$other', timestamp),
     };
@@ -91,6 +95,13 @@ final class AssignmentCreatedEvent extends ServerEvent {
 final class AdminUpdatedEvent extends ServerEvent {
   const AdminUpdatedEvent(this.admin, DateTime timestamp) : super(timestamp);
   final Admin admin;
+}
+
+/// The search-radius policy changed; it applies to every waiting package.
+final class RadiusPolicyUpdatedEvent extends ServerEvent {
+  const RadiusPolicyUpdatedEvent(this.policy, DateTime timestamp)
+    : super(timestamp);
+  final RadiusPolicy policy;
 }
 
 /// Everything except the admin was deleted.

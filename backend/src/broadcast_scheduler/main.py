@@ -5,6 +5,8 @@ Run locally with::
     uv run fastapi dev src/broadcast_scheduler/main.py
 """
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,6 +21,7 @@ from broadcast_scheduler.api import (
     packages_router,
     riders_router,
     scheduler_router,
+    settings_router,
     ws_router,
 )
 from broadcast_scheduler.config import Settings, get_settings
@@ -31,8 +34,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 DESCRIPTION = """
 Packages and riders enter the scheduler. Every arrival is **instantly paired** with the
-nearest counterpart (haversine distance, within `MAX_MATCH_RADIUS_MILES`); paired items
+nearest counterpart (haversine distance) within the package's search radius; paired items
 leave the scheduler and an assignment is recorded.
+
+A waiting package's search radius **grows over time**: it starts at the policy's initial
+radius and widens by the increment every interval, up to the maximum. Each expansion
+re-runs matching. Read or change the policy with `/settings/radius`.
 
 Live changes are streamed over the **`/ws/scheduler`** WebSocket; see
 `docs/websocket-events.md` for the event contract.
@@ -51,11 +58,16 @@ def create_app(
         hub = EventHub(max_queue=settings.websocket_queue_size)
         service = SchedulerService(repo, hub, settings)
         await service.ensure_admin()
+        await service.get_radius_policy()
         app.state.hub = hub
         app.state.service = service
+        expander = asyncio.create_task(service.run_radius_expander())
         try:
             yield
         finally:
+            expander.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await expander
             await repo.close()
 
     app = FastAPI(
@@ -79,7 +91,14 @@ def create_app(
     async def conflict(_: Request, exc: ConflictError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
-    for router in (admin_router, packages_router, riders_router, scheduler_router, ws_router):
+    for router in (
+        admin_router,
+        packages_router,
+        riders_router,
+        settings_router,
+        scheduler_router,
+        ws_router,
+    ):
         app.include_router(router)
     return app
 

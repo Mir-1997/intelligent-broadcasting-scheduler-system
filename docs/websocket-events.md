@@ -38,13 +38,14 @@ Every message except `pong` is a JSON text frame:
 
 | `type` | `data` | Sent when | Client action |
 |---|---|---|---|
-| `scheduler.snapshot` | `SchedulerState`: `{admin, packages[], riders[], max_match_radius_miles}` (only *waiting* packages and *available* riders) | first message on every connection | replace all state |
+| `scheduler.snapshot` | `SchedulerState`: `{admin, packages[], riders[], radius_policy}` (only *waiting* packages and *available* riders) | first message on every connection | replace all state |
 | `package.added` | `{package: Package}` | `POST /packages` (also during `/simulate`) | if `status == "waiting"`, add it; if `"assigned"`, ignore it (an `assignment.created` follows) |
 | `package.removed` | `{package_id}` | `DELETE /packages/{id}` | remove it |
 | `rider.added` | `{rider: Rider}` | `POST /riders` | if `status == "available"`, add it; otherwise ignore |
 | `rider.removed` | `{rider_id}` | `DELETE /riders/{id}` | remove it |
-| `assignment.created` | `{assignment: Assignment}` | a pairing happened | remove `package_id` and `rider_id` from the scheduler, show the prompt, prepend to history |
+| `assignment.created` | `{assignment: Assignment}` | a pairing happened (on arrival, or when a package's growing radius reached a rider: `trigger: "radius_expanded"`) | remove `package_id` and `rider_id` from the scheduler, show the prompt, prepend to history |
 | `admin.updated` | `{admin: Admin}` | `PUT /admin` | update the map centre |
+| `radius_policy.updated` | `{radius_policy: RadiusPolicy}` | `PUT /settings/radius` | recompute every waiting package's radius / countdown |
 | `scheduler.reset` | `{}` | `POST /scheduler/reset` | clear packages, riders and history |
 
 Schemas for `Package`, `Rider`, `Assignment` and `Admin` are in
@@ -69,7 +70,7 @@ Schemas for `Package`, `Rider`, `Assignment` and `Admin` are in
 ## Example session
 
 ```text
-← {"type":"scheduler.snapshot","data":{"admin":{"name":"Admin HQ","location":{"lat":40.758,"lng":-73.9855}},"packages":[],"riders":[],"max_match_radius_miles":5.0},"timestamp":"…"}
+← {"type":"scheduler.snapshot","data":{"admin":{"name":"Admin HQ","location":{"lat":40.758,"lng":-73.9855}},"packages":[],"riders":[],"radius_policy":{"initial_radius_miles":1.0,"increment_miles":2.0,"interval_seconds":30.0,"max_radius_miles":15.0}},"timestamp":"…"}
 
    (someone POSTs a rider, then a package 0.77 mi away)
 

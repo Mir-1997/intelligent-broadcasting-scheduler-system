@@ -39,6 +39,10 @@ class SchedulerBloc extends Bloc<SchedulerEvent, SchedulerState> {
     on<SimulationRequested>(
       (e, emit) => _command(emit, () => _repository.simulate(e.draft)),
     );
+    on<RadiusPolicyUpdateRequested>(
+      (e, emit) =>
+          _command(emit, () => _repository.updateRadiusPolicy(e.policy)),
+    );
     on<SchedulerResetRequested>((e, emit) => _command(emit, _repository.reset));
     on<AssignmentPromptDismissed>(
       (e, emit) => emit(_withoutPrompt(e.assignmentId)),
@@ -152,7 +156,7 @@ SchedulerState reduceServerEvent(SchedulerState state, ServerEvent event) {
         admin: snapshot.admin,
         packages: {for (final p in snapshot.packages) p.id: p},
         riders: {for (final r in snapshot.riders) r.id: r},
-        maxMatchRadiusMiles: snapshot.maxMatchRadiusMiles,
+        radiusPolicy: snapshot.radiusPolicy,
         hasSnapshot: true,
       );
     case PackageAddedEvent(:final package):
@@ -178,6 +182,8 @@ SchedulerState reduceServerEvent(SchedulerState state, ServerEvent event) {
       );
     case AdminUpdatedEvent(:final admin):
       return state.copyWith(admin: admin);
+    case RadiusPolicyUpdatedEvent(:final policy):
+      return state.copyWith(radiusPolicy: policy);
     case SchedulerResetEvent():
       return state.copyWith(packages: {}, riders: {}, recentAssignments: []);
     case UnknownEvent():

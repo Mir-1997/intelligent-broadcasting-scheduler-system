@@ -89,6 +89,10 @@ void main() {
       s = reduceServerEvent(s, AdminUpdatedEvent(moved, t0));
       expect(s.admin, moved);
 
+      const wider = RadiusPolicy(initialRadiusMiles: 4, maxRadiusMiles: 20);
+      s = reduceServerEvent(s, RadiusPolicyUpdatedEvent(wider, t0));
+      expect(s.radiusPolicy, wider);
+
       s = reduceServerEvent(
         s.copyWith(packages: {'p': package('p')}),
         SchedulerResetEvent(t0),
@@ -230,6 +234,9 @@ void main() {
           () => harness.repository.removeRider(any()),
         ).thenAnswer((_) async {});
         when(() => harness.repository.reset()).thenAnswer((_) async {});
+        when(
+          () => harness.repository.updateRadiusPolicy(any()),
+        ).thenAnswer((_) async {});
       },
       build: () => SchedulerBloc(repository: harness.repository),
       act: (bloc) async {
@@ -251,6 +258,11 @@ void main() {
           ..add(const SimulationRequested(SimulationDraft(packages: 3)))
           ..add(const PackageRemoveRequested('p'))
           ..add(const RiderRemoveRequested('r'))
+          ..add(
+            const RadiusPolicyUpdateRequested(
+              RadiusPolicy(initialRadiusMiles: 2),
+            ),
+          )
           ..add(const SchedulerResetRequested());
       },
       verify: (bloc) {
@@ -262,6 +274,11 @@ void main() {
         verify(() => harness.repository.removePackage('p')).called(1);
         verify(() => harness.repository.removeRider('r')).called(1);
         verify(() => harness.repository.reset()).called(1);
+        verify(
+          () => harness.repository.updateRadiusPolicy(
+            const RadiusPolicy(initialRadiusMiles: 2),
+          ),
+        ).called(1);
         expect(bloc.state.pendingRequests, 0);
       },
     );

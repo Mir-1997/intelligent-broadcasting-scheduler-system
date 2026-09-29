@@ -4,8 +4,11 @@ It persists through the repository and then publishes the matching event(s) to t
 Because *all* writes go through here, every change reaches connected clients.
 """
 
+import asyncio
+import contextlib
 import logging
 import random
+from datetime import datetime, timedelta
 
 from broadcast_scheduler.config import Settings
 from broadcast_scheduler.exceptions import NotFoundError
@@ -21,6 +24,7 @@ from broadcast_scheduler.models import (
     PackageCreate,
     PackageStatus,
     Place,
+    RadiusPolicy,
     Rider,
     RiderAddResult,
     RiderCreate,
@@ -41,6 +45,10 @@ _SIMULATED_NAMES = [
     "Ahmed", "Fatima", "Danish", "Mahnoor", "Saad", "Iqra", "Faisal", "Amna", "Kamran", "Rabia",
 ]  # fmt: skip
 
+# Wake just *after* a radius boundary, so the package's grown radius is already in effect.
+_EXPANSION_SLACK = timedelta(milliseconds=50)
+_RETRY_AFTER = timedelta(seconds=5)
+
 
 class SchedulerService:
     def __init__(
@@ -54,10 +62,9 @@ class SchedulerService:
         self._hub = hub
         self._settings = settings
         self._rng = rng or random.Random()
-
-    @property
-    def max_radius_miles(self) -> float:
-        return self._settings.max_match_radius_miles
+        self._radius_policy: RadiusPolicy | None = None
+        # Set whenever the next radius expansion may have moved (new package, policy change).
+        self._expansion_changed = asyncio.Event()
 
     # --- admin ---------------------------------------------------------------------------
 
@@ -81,15 +88,85 @@ class SchedulerService:
         self._publish(EventType.ADMIN_UPDATED, {"admin": saved.model_dump(mode="json")})
         return saved
 
+    # --- radius policy -------------------------------------------------------------------
+
+    async def get_radius_policy(self) -> RadiusPolicy:
+        """The current policy, seeded from settings on first start-up and then cached
+        (a single API worker owns it; see realtime.py)."""
+        if self._radius_policy is None:
+            policy = await self._repo.get_radius_policy()
+            if policy is None:
+                policy = await self._repo.save_radius_policy(
+                    RadiusPolicy(
+                        initial_radius_miles=self._settings.initial_radius_miles,
+                        increment_miles=self._settings.radius_increment_miles,
+                        interval_seconds=self._settings.radius_interval_seconds,
+                        max_radius_miles=self._settings.max_match_radius_miles,
+                    )
+                )
+                logger.info("Seeded radius policy %s", policy)
+            self._radius_policy = policy
+        return self._radius_policy
+
+    async def update_radius_policy(self, policy: RadiusPolicy) -> RadiusPolicy:
+        """Apply a new policy to every waiting package, pairing any that now reach a rider."""
+        self._radius_policy = await self._repo.save_radius_policy(policy)
+        self._publish(
+            EventType.RADIUS_POLICY_UPDATED, {"radius_policy": policy.model_dump(mode="json")}
+        )
+        self._expansion_changed.set()
+        await self.expand_matches()
+        return policy
+
+    async def expand_matches(self) -> list[Assignment]:
+        """Pair waiting packages whose current radius now reaches an available rider."""
+        assignments = await self._repo.match_waiting(await self.get_radius_policy())
+        for assignment in assignments:
+            self._publish_assignment(assignment)
+        return assignments
+
+    async def run_radius_expander(self) -> None:
+        """Background task: re-run matching each time a waiting package's radius grows.
+
+        Sleeps until the earliest upcoming expansion, or until something changes that
+        could move it. Runs until cancelled.
+        """
+        due: datetime | None = None
+        while True:
+            self._expansion_changed.clear()
+            try:
+                if due is not None and utc_now() >= due:
+                    await self.expand_matches()
+                due = await self._next_expansion_at()
+            except Exception:
+                logger.exception("Radius expansion failed; retrying")
+                due = utc_now() + _RETRY_AFTER
+            timeout = None if due is None else max(0.0, (due - utc_now()).total_seconds())
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._expansion_changed.wait(), timeout)
+
+    async def _next_expansion_at(self) -> datetime | None:
+        policy = await self.get_radius_policy()
+        now = utc_now()
+        upcoming = [
+            at
+            for p in await self._repo.list_packages(PackageStatus.WAITING)
+            if (at := policy.next_expansion_at(p.created_at, now)) is not None
+        ]
+        return min(upcoming) + _EXPANSION_SLACK if upcoming else None
+
     # --- packages ------------------------------------------------------------------------
 
     async def add_package(self, request: PackageCreate) -> PackageAddResult:
         package = Package(
             id=new_id("pkg"), pickup=request.pickup, dropoff=request.dropoff, created_at=utc_now()
         )
-        stored, assignment = await self._repo.add_package(package, self.max_radius_miles)
+        policy = await self.get_radius_policy()
+        stored, assignment = await self._repo.add_package(package, policy.initial_radius_miles)
         self._publish(EventType.PACKAGE_ADDED, {"package": stored.model_dump(mode="json")})
         self._publish_assignment(assignment)
+        if assignment is None:
+            self._expansion_changed.set()
         return PackageAddResult(package=stored, assignment=assignment)
 
     async def get_package(self, package_id: str) -> Package:
@@ -112,7 +189,7 @@ class SchedulerService:
         rider = Rider(
             id=new_id("rdr"), name=request.name, location=request.location, created_at=utc_now()
         )
-        stored, assignment = await self._repo.add_rider(rider, self.max_radius_miles)
+        stored, assignment = await self._repo.add_rider(rider, await self.get_radius_policy())
         self._publish(EventType.RIDER_ADDED, {"rider": stored.model_dump(mode="json")})
         self._publish_assignment(assignment)
         return RiderAddResult(rider=stored, assignment=assignment)
@@ -142,7 +219,7 @@ class SchedulerService:
             admin=await self.ensure_admin(),
             packages=await self._repo.list_packages(PackageStatus.WAITING),
             riders=await self._repo.list_riders(RiderStatus.AVAILABLE),
-            max_match_radius_miles=self.max_radius_miles,
+            radius_policy=await self.get_radius_policy(),
         )
 
     async def snapshot_event(self) -> SchedulerEvent:
@@ -184,6 +261,7 @@ class SchedulerService:
     async def reset(self) -> None:
         await self._repo.reset()
         self._publish(EventType.SCHEDULER_RESET, {})
+        self._expansion_changed.set()
 
     # --- helpers -------------------------------------------------------------------------
 

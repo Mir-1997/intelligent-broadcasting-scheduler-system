@@ -7,6 +7,7 @@ from broadcast_scheduler.models import (
     Assignment,
     Package,
     PackageStatus,
+    RadiusPolicy,
     Rider,
     RiderStatus,
 )
@@ -24,19 +25,30 @@ class SchedulerRepository(Protocol):
 
     async def save_admin(self, admin: Admin) -> Admin: ...
 
+    async def get_radius_policy(self) -> RadiusPolicy | None: ...
+
+    async def save_radius_policy(self, policy: RadiusPolicy) -> RadiusPolicy: ...
+
     async def add_package(
-        self, package: Package, max_radius_miles: float
+        self, package: Package, radius_miles: float
     ) -> tuple[Package, Assignment | None]:
-        """Store a new waiting package, pairing it with the nearest available rider.
+        """Store a new waiting package, pairing it with the nearest available rider
+        within ``radius_miles`` (a new package's starting radius).
 
         Returns the stored package (``assigned`` if paired) and the assignment, if any.
         """
         ...
 
     async def add_rider(
-        self, rider: Rider, max_radius_miles: float
+        self, rider: Rider, policy: RadiusPolicy
     ) -> tuple[Rider, Assignment | None]:
-        """Store a new available rider, pairing it with the nearest waiting package."""
+        """Store a new available rider, pairing it with the nearest waiting package whose
+        current search radius (per ``policy``) reaches it."""
+        ...
+
+    async def match_waiting(self, policy: RadiusPolicy) -> list[Assignment]:
+        """Atomically pair every waiting package with the nearest available rider inside
+        its current search radius (oldest packages first). Returns the new assignments."""
         ...
 
     async def get_package(self, package_id: str) -> Package | None: ...
@@ -64,7 +76,7 @@ class SchedulerRepository(Protocol):
         ...
 
     async def reset(self) -> None:
-        """Delete all packages, riders and assignments (the admin is kept)."""
+        """Delete all packages, riders and assignments (admin and radius policy are kept)."""
         ...
 
     async def close(self) -> None: ...

@@ -23,7 +23,9 @@ Examples below are real responses captured from the running service.
 | GET | `/riders?status=available\|assigned` | List riders, oldest first | 200 |
 | GET | `/riders/{id}` | One rider | 200 / 404 |
 | DELETE | `/riders/{id}` | Remove an **available** rider | 200 / 404 / 409 |
-| GET | `/scheduler/state` | Waiting packages + available riders + admin | 200 |
+| GET | `/settings/radius` | Search-radius policy (start, increment, timer, cap) | 200 |
+| PUT | `/settings/radius` | Replace the policy; applies to waiting packages immediately | 200 / 422 |
+| GET | `/scheduler/state` | Waiting packages + available riders + admin + radius policy | 200 |
 | POST | `/scheduler/reset` | Delete all packages, riders, assignments (admin kept) | 204 |
 | GET | `/assignments?limit=50` | Assignment history, newest first (`1 ≤ limit ≤ 500`) | 200 |
 | POST | `/simulate` | Spawn random packages/riders around the admin | 200 |
@@ -151,6 +153,25 @@ Events: `rider.added`, then `assignment.created` if paired.
 These mirror the package endpoints (`status` is `available` or `assigned`). Deleting an
 assigned rider gives **409** `{"detail":"Rider rdr_c14661b1 is already assigned"}`.
 
+## Settings
+
+### `GET /settings/radius` → `RadiusPolicy`
+
+```json
+{ "initial_radius_miles": 1.0, "increment_miles": 2.0, "interval_seconds": 30.0, "max_radius_miles": 15.0 }
+```
+
+A waiting package's search radius is `min(initial + increment × ⌊waited / interval⌋, max)`;
+see [matching-algorithm.md](matching-algorithm.md#growing-search-radius).
+
+### `PUT /settings/radius`
+
+Body and response: `RadiusPolicy`. Constraints: `0 < initial_radius_miles ≤ 100`,
+`0 ≤ increment_miles ≤ 100` (0 disables growth), `1 ≤ interval_seconds ≤ 86400`,
+`initial_radius_miles ≤ max_radius_miles ≤ 200`; otherwise **422**. The policy is persisted,
+emits `radius_policy.updated`, and immediately pairs any waiting package whose new radius
+reaches an available rider (`assignment.created` with `trigger: "radius_expanded"`).
+
 ## Scheduler
 
 ### `GET /scheduler/state`
@@ -163,7 +184,8 @@ debugging; the web app gets its state from the socket.
   "admin": { "name": "Admin HQ", "location": { "lat": 40.758, "lng": -73.9855 } },
   "packages": [ /* waiting Package[] */ ],
   "riders":   [ /* available Rider[] */ ],
-  "max_match_radius_miles": 5.0
+  "radius_policy": { "initial_radius_miles": 1.0, "increment_miles": 2.0,
+                     "interval_seconds": 30.0, "max_radius_miles": 15.0 }
 }
 ```
 

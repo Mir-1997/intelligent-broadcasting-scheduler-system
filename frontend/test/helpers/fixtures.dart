@@ -48,8 +48,15 @@ SchedulerSnapshot snapshot({
   admin: admin,
   packages: packages,
   riders: riders,
-  maxMatchRadiusMiles: 5,
+  radiusPolicy: const RadiusPolicy(),
 );
+
+Map<String, dynamic> radiusPolicyJson() => {
+  'initial_radius_miles': 1.0,
+  'increment_miles': 2.0,
+  'interval_seconds': 30.0,
+  'max_radius_miles': 15.0,
+};
 
 /// JSON exactly as the backend serialises it.
 Map<String, dynamic> packageJson(String id, {String status = 'waiting'}) => {

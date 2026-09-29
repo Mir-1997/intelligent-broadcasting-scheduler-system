@@ -52,6 +52,14 @@ final class SimulationRequested extends SchedulerEvent {
   List<Object?> get props => [draft];
 }
 
+final class RadiusPolicyUpdateRequested extends SchedulerEvent {
+  const RadiusPolicyUpdateRequested(this.policy);
+  final RadiusPolicy policy;
+
+  @override
+  List<Object?> get props => [policy];
+}
+
 final class SchedulerResetRequested extends SchedulerEvent {
   const SchedulerResetRequested();
 }

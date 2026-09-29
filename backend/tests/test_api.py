@@ -71,7 +71,7 @@ def test_out_of_range_items_both_wait(client):
 
     state = client.get("/scheduler/state").json()
     assert len(state["packages"]) == 1 and len(state["riders"]) == 1
-    assert state["max_match_radius_miles"] == 5.0
+    assert state["radius_policy"]["initial_radius_miles"] == 5.0
 
 
 def test_validation_rejects_bad_coordinates(client):
@@ -151,7 +151,49 @@ def test_reset(client):
     assert client.get("/admin").json()["name"] == "Test Admin"
 
 
+def test_radius_policy_is_seeded_from_settings(client):
+    assert client.get("/settings/radius").json() == {
+        "initial_radius_miles": 5.0,
+        "increment_miles": 0.0,
+        "interval_seconds": 30.0,
+        "max_radius_miles": 5.0,
+    }
+
+
+def test_update_radius_policy_pairs_packages_now_in_reach(client):
+    client.post("/packages", json=package_body())
+    client.post("/riders", json=rider_body(ADMIN_LAT + ONE_MILE_LAT * 8))
+    assert len(client.get("/scheduler/state").json()["packages"]) == 1
+
+    policy = {
+        "initial_radius_miles": 10,
+        "increment_miles": 1,
+        "interval_seconds": 5,
+        "max_radius_miles": 12,
+    }
+    assert client.put("/settings/radius", json=policy).json() == policy
+
+    state = client.get("/scheduler/state").json()
+    assert state["packages"] == [] and state["riders"] == []
+    assert state["radius_policy"] == policy
+    assert client.get("/assignments").json()[0]["trigger"] == "radius_expanded"
+
+
+def test_update_radius_policy_validates(client):
+    bad = {"initial_radius_miles": 5, "increment_miles": 2, "max_radius_miles": 3}
+    assert client.put("/settings/radius", json=bad).status_code == 422
+    assert client.put("/settings/radius", json={"interval_seconds": 0}).status_code == 422
+
+
 def test_openapi_lists_all_routes(client):
     paths = client.get("/openapi.json").json()["paths"]
-    for path in ["/admin", "/packages", "/riders", "/scheduler/state", "/assignments", "/simulate"]:
+    for path in [
+        "/admin",
+        "/packages",
+        "/riders",
+        "/scheduler/state",
+        "/assignments",
+        "/simulate",
+        "/settings/radius",
+    ]:
         assert path in paths
