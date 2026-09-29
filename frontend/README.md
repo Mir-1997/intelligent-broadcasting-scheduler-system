@@ -2,9 +2,9 @@
 
 ```sh
 flutter pub get
-flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
+flutter run -d chrome --dart-define-from-file=../.env
 flutter test
-flutter build web --release --dart-define=API_BASE_URL=http://localhost:8000
+flutter build web --release --dart-define=API_BASE_URL=http://localhost:8000 --dart-define-from-file=../.env
 ```
 
 The map uses Mapbox Streets when `MAPBOX_TOKEN` is set, and OpenStreetMap tiles otherwise.

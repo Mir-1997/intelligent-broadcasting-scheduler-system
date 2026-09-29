@@ -3,7 +3,7 @@
 Read in this order if you're new to the project:
 
 1. [architecture.md](architecture.md): how the pieces fit together, with sequence diagrams
-2. [matching-algorithm.md](matching-algorithm.md): the core rule and why it is race-free
+2. [matching-algorithm.md](matching-algorithm.md): the core rule, the growing search radius, and why it is race-free
 3. [websocket-events.md](websocket-events.md): how the frontend learns about changes
 4. [api-reference.md](api-reference.md): REST endpoints
 5. [data-model.md](data-model.md): what is stored in Firestore
